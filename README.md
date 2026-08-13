@@ -1,4 +1,4 @@
-# Houten Heren 1 sponsor-dashboard
+# Heren 1 sponsor-dashboard
 
 De site is een statische React-app voor Neocities met Supabase als live database. Neocities host alleen de frontend; sponsorregels en instellingen worden direct online opgeslagen.
 
