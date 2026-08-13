@@ -1,4 +1,17 @@
 node_modules/
 dist/
+
+# Local environment files
 .env.local
 .env.*.local
+
+# Local development logs
+*.log
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local editor settings
+.vscode/
+.idea/
