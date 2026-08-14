@@ -12,11 +12,38 @@ create table if not exists public.sponsors (
   amount numeric not null default 0 check (amount >= 0),
   sourced_by text not null default '',
   logo_status text not null default 'Nog niet ontvangen',
-  payment_status text not null default 'Nog niet betaald',
+  payment_status text not null default 'Anders' constraint sponsors_payment_status_type_check check (payment_status in ('Tikkie', 'Clubfactuur', 'Anders')),
+  is_betaald boolean not null default false,
   description text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Existing records used payment_status as a paid/unpaid status. Preserve that
+-- meaning once during the move to a separate paid checkbox and payment type.
+alter table public.sponsors add column if not exists is_betaald boolean not null default false;
+update public.sponsors
+set
+  is_betaald = case when payment_status = 'Nog niet betaald' then false else true end,
+  payment_status = case
+    when payment_status in ('Nog niet betaald', 'Contant/anders') then 'Anders'
+    else payment_status
+  end
+where payment_status in ('Nog niet betaald', 'Clubfactuur', 'Tikkie', 'Contant/anders');
+alter table public.sponsors alter column payment_status set default 'Anders';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'sponsors_payment_status_type_check'
+      and conrelid = 'public.sponsors'::regclass
+  ) then
+    alter table public.sponsors
+      add constraint sponsors_payment_status_type_check
+      check (payment_status in ('Tikkie', 'Clubfactuur', 'Anders'));
+  end if;
+end $$;
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -32,6 +59,26 @@ alter table public.profiles enable row level security;
 create or replace function public.current_role()
 returns text language sql stable security definer set search_path = public
 as $$ select role from public.profiles where id = auth.uid() $$;
+
+create or replace function public.protect_sponsor_paid_status()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+begin
+  if (tg_op = 'INSERT' and new.is_betaald)
+    or (tg_op = 'UPDATE' and new.is_betaald is distinct from old.is_betaald)
+  then
+    if public.current_role() is distinct from 'admin' then
+      raise exception 'Alleen beheerders kunnen de betaalstatus wijzigen';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_sponsor_paid_status on public.sponsors;
+create trigger protect_sponsor_paid_status
+before insert or update on public.sponsors
+for each row execute function public.protect_sponsor_paid_status();
 
 drop policy if exists "public can read settings" on public.settings;
 create policy "public can read settings" on public.settings for select using (true);
